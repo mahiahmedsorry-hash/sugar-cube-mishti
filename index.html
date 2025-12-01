@@ -17,6 +17,7 @@
     input { flex: 1; padding: 0.75rem; border: 2px solid #ff6b6b; border-radius: 25px; font-size: 1rem; }
     button { background: #ff6b6b; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 25px; cursor: pointer; font-size: 1rem; }
     button:hover { background: #ee5a24; }
+    button:disabled { background: #ccc; cursor: not-allowed; }
     .loading { display: flex; gap: 0.25rem; align-self: flex-start; }
     .dot { width: 8px; height: 8px; background: #ff6b6b; border-radius: 50%; animation: bounce 1.4s infinite ease-in-out; }
     .dot:nth-child(2) { animation-delay: 0.2s; }
@@ -36,16 +37,25 @@
     </div>
   </div>
   <div id="input-area">
-    <input type="text" id="input" placeholder="তোমার প্রশ্ন লিখো..." onkeypress="if(event.key==='Enter') sendMessage()">
-    <button onclick="sendMessage()">পাঠাও</button>
+    <input type="text" id="input" placeholder="তোমার প্রশ্ন লিখো..." onkeypress="handleKeyPress(event)">
+    <button id="sendBtn" onclick="sendMessage()">পাঠাও</button>
   </div>
 
   <script>
     const messages = document.getElementById('messages');
     const input = document.getElementById('input');
+    const sendBtn = document.getElementById('sendBtn');
     const GROQ_KEY = "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";
     const DEEPSEEK_KEY = "sk-08417a1c4b1c4ac59b4a61b7c59ec355";
     const SYSTEM_PROMPT = `তুমি "সুগার কিউব কেক শপ"-এর মিষ্টি। বাংলায় বন্ধুত্বপূর্ণ উত্তর দাও। দাম ৫০০-৩০০০ টাকা। অর্ডার ফেসবুকে করতে বলো।`;
+
+    let isLoading = false;
+
+    function handleKeyPress(event) {
+      if (event.key === 'Enter' && !isLoading) {
+        sendMessage();
+      }
+    }
 
     async function callAI(query) {
       const url = "https://api.groq.com/openai/v1/chat/completions";
@@ -59,10 +69,11 @@
             temperature: 0.7, max_tokens: 400
           })
         });
+        if (!res.ok) throw new Error('Groq error');
         const data = await res.json();
         return data.choices[0].message.content;
       } catch (e) {
-        // Fallback to DeepSeek
+        console.log('Groq failed, trying DeepSeek...');
         const url2 = "https://api.deepseek.com/chat/completions";
         const res2 = await fetch(url2, {
           method: 'POST',
@@ -73,15 +84,21 @@
             temperature: 0.7, max_tokens: 400
           })
         });
+        if (!res2.ok) throw new Error('DeepSeek error');
         const data2 = await res2.json();
         return data2.choices[0].message.content;
       }
     }
 
     async function sendMessage() {
+      if (isLoading || !input.value.trim()) return;
+      isLoading = true;
+      sendBtn.disabled = true;
+      sendBtn.textContent = '...';
+
       const text = input.value.trim();
-      if (!text) return;
       input.value = '';
+
       const userMsg = document.createElement('div');
       userMsg.className = 'message user';
       userMsg.textContent = text;
@@ -89,18 +106,31 @@
       messages.scrollTop = messages.scrollHeight;
 
       const loading = document.createElement('div');
-      loading.className = 'message loading bot';
+      loading.className = 'loading';
       loading.innerHTML = '<div class="dot"></div><div class="dot"></div><div class="dot"></div>';
       messages.appendChild(loading);
       messages.scrollTop = messages.scrollHeight;
 
-      const reply = await callAI(text);
-      messages.removeChild(loading);
-      const botMsg = document.createElement('div');
-      botMsg.className = 'message bot';
-      botMsg.innerHTML = reply.replace(/\n/g, '<br>');
-      messages.appendChild(botMsg);
-      messages.scrollTop = messages.scrollHeight;
+      try {
+        const reply = await callAI(text);
+        messages.removeChild(loading);
+        const botMsg = document.createElement('div');
+        botMsg.className = 'message bot';
+        botMsg.innerHTML = reply.replace(/\n/g, '<br>');
+        messages.appendChild(botMsg);
+        messages.scrollTop = messages.scrollHeight;
+      } catch (e) {
+        messages.removeChild(loading);
+        const errorMsg = document.createElement('div');
+        errorMsg.className = 'message bot';
+        errorMsg.textContent = 'দুঃখিত, এখন রেসপন্স দিতে পারছি না। একটু পরে চেষ্টা করো।';
+        messages.appendChild(errorMsg);
+        messages.scrollTop = messages.scrollHeight;
+      } finally {
+        isLoading = false;
+        sendBtn.disabled = false;
+        sendBtn.textContent = 'পাঠাও';
+      }
     }
   </script>
 </body>
